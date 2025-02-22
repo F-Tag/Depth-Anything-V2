@@ -11,6 +11,7 @@ from functools import partial
 import math
 import logging
 from typing import Sequence, Tuple, Union, Callable
+import warnings
 
 import torch
 import torch.nn as nn
@@ -18,6 +19,7 @@ import torch.utils.checkpoint
 from torch.nn.init import trunc_normal_
 
 from .dinov2_layers import Mlp, PatchEmbed, SwiGLUFFNFused, MemEffAttention, NestedTensorBlock as Block
+from torch.jit import TracerWarning
 
 
 logger = logging.getLogger("dinov2")
@@ -194,18 +196,24 @@ class DinoVisionTransformer(nn.Module):
         w0, h0 = w0 + self.interpolate_offset, h0 + self.interpolate_offset
         # w0, h0 = w0 + 0.1, h0 + 0.1
         
-        sqrt_N = math.sqrt(N)
+        sqrt_N = N ** 0.5
+        int_sqrt_N = int(sqrt_N)
         sx, sy = float(w0) / sqrt_N, float(h0) / sqrt_N
+        sx, sy = float(sx), float(sy)
         patch_pos_embed = nn.functional.interpolate(
-            patch_pos_embed.reshape(1, int(sqrt_N), int(sqrt_N), dim).permute(0, 3, 1, 2),
-            scale_factor=(sx, sy),
-            # (int(w0), int(h0)), # to solve the upsampling shape issue
+            patch_pos_embed.reshape(1, int_sqrt_N, int_sqrt_N, dim).permute(0, 3, 1, 2),
+            # scale_factor=(sx, sy),
+            (int(w0), int(h0)), # to solve the upsampling shape issue
             mode="bicubic",
             antialias=self.interpolate_antialias
         )
         
-        assert int(w0) == patch_pos_embed.shape[-2]
-        assert int(h0) == patch_pos_embed.shape[-1]
+        # filter warning
+        with warnings.catch_warnings():
+            # TracerWarning of pytorch
+            warnings.filterwarnings('ignore', category=TracerWarning)
+            assert int(w0) == patch_pos_embed.shape[-2]
+            assert int(h0) == patch_pos_embed.shape[-1]
         patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
         return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1).to(previous_dtype)
 
