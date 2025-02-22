@@ -38,7 +38,7 @@ def main():
         input_tensor,
         "export_models/depth_anything_v2_metric_vkitti_vits.org.onnx",
         export_params=True,
-        opset_version=11,
+        opset_version=17,
         do_constant_folding=True,
         input_names=["input_image"],
         output_names=["output_depth"],
