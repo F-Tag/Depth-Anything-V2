@@ -1,4 +1,5 @@
 import os
+import argparse
 
 import numpy as np
 import onnx
@@ -10,6 +11,15 @@ from depth_anything_v2.dpt import DepthAnythingV2
 
 
 def main():
+    argparser = argparse.ArgumentParser()
+    argparser.add_argument(
+        "--input-height", type=int, default=1080, help="input image height"
+    )
+    argparser.add_argument(
+        "--input-width", type=int, default=1920, help="input image width"
+    )
+    args = argparser.parse_args()
+
     # load models
     max_depth = 80  # for outdoor
     depth_anything = DepthAnythingV2(
@@ -25,8 +35,8 @@ def main():
     )
     depth_anything = depth_anything.to("cpu").eval()
 
-    # opencv style bgr numpy array (full hd)
-    input_image = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    # opencv style bgr numpy array
+    input_image = np.zeros((args.input_height, args.input_width, 3), dtype=np.uint8)
     input_tensor, (h, w) = depth_anything.image2tensor(input_image, 518)
     input_tensor = input_tensor.to("cpu")
 
