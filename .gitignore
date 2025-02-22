@@ -1,0 +1,5 @@
+*.pyc
+*.png
+*.onnx
+*.ply
+*.pth
