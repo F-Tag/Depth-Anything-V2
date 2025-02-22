@@ -54,13 +54,12 @@ def main():
     )
     onnx_model = onnx.shape_inference.infer_shapes(onnx_model)
 
-    onnx_model, check = simplify(onnx_model)
-    assert check
+    for _ in range(10):
+        onnx_model, check = simplify(onnx_model)
+        assert check
 
     onnx_model = float16.convert_float_to_float16(onnx_model, keep_io_types=True)
-    onnx.save(
-        onnx_model, "export_models/depth_anything_v2_metric_vkitti_vits_shape.onnx"
-    )
+    onnx.save(onnx_model, "export_models/depth_anything_v2_metric_vkitti_vits.onnx")
 
 
 if __name__ == "__main__":
