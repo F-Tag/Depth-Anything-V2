@@ -175,23 +175,29 @@ class DepthAnythingV2(nn.Module):
         self.pretrained = DINOv2(model_name=encoder)
         
         self.depth_head = DPTHead(self.pretrained.embed_dim, features, use_bn, out_channels=out_channels, use_clstoken=use_clstoken)
+
+        self.h, self.w = None, None
     
     def forward(self, x):
         patch_h, patch_w = x.shape[-2] // 14, x.shape[-1] // 14
+        batch_size = x.shape[0]
         
         features = self.pretrained.get_intermediate_layers(x, self.intermediate_layer_idx[self.encoder], return_class_token=True)
         
         depth = self.depth_head(features, patch_h, patch_w) * self.max_depth
         
-        return depth.squeeze(1)
+        depth = F.interpolate(depth, (self.h, self.w), mode="bilinear", align_corners=True)# [0, 0]
+        
+        return depth[:,0].reshape(batch_size, self.h, self.w)
     
     @torch.no_grad()
     def infer_image(self, raw_image, input_size=518):
-        image, (h, w) = self.image2tensor(raw_image, input_size)
+        image, (self.h, self.w) = self.image2tensor(raw_image, input_size)
         
         depth = self.forward(image)
         
-        depth = F.interpolate(depth[:, None], (h, w), mode="bilinear", align_corners=True)[0, 0]
+        # depth = F.interpolate(depth[:, None], (h, w), mode="bilinear", align_corners=True)[0, 0]
+        depth = depth.squeeze(0)
         
         return depth.cpu().numpy()
     
@@ -219,5 +225,7 @@ class DepthAnythingV2(nn.Module):
         
         DEVICE = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
         image = image.to(DEVICE)
+        
+        self.h, self.w = h, w
         
         return image, (h, w)

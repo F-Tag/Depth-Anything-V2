@@ -52,8 +52,6 @@ def main():
     onnx_model = onnx.load(
         "export_models/depth_anything_v2_metric_vkitti_vits.org.onnx"
     )
-    onnx_model = onnx.shape_inference.infer_shapes(onnx_model)
-
     for _ in range(10):
         onnx_model, check = simplify(onnx_model)
         assert check

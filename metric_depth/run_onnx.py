@@ -44,6 +44,7 @@ class MetricDepthEstimator:
             ("OpenVINOExecutionProvider", {"device_type": "CPU", "num_of_threads": 1}),
             "CPUExecutionProvider",
         ]
+        # providers = providers[1:] # unuse TensorrtExecutionProvider
         self.session = onnxruntime.InferenceSession(
             onnx_file,
             providers=providers,
@@ -51,20 +52,18 @@ class MetricDepthEstimator:
         )
         self.input_name = self.session.get_inputs()[0].name
         self.output_name = self.session.get_outputs()[0].name
-        input_shape = self.session.get_inputs()[0].shape[1:]
+        self.output_shape = self.session.get_outputs()[0].shape[1:] # (h, w)
 
         # output tensor
         device = "cuda" if torch.cuda.is_available() and "CUDAExecutionProvider" in onnxruntime.get_available_providers() else "cpu"
         self.output_tensor = torch.empty(
-            (1, input_shape[1], input_shape[2]), dtype=torch.float32, device=device
+            (1, self.output_shape[0], self.output_shape[1]), dtype=torch.float32, device=device
         ).contiguous()
 
-        print(self.output_tensor.device.type, self.output_tensor.device.index)
-
         # initalize session
-        self.session.run(
-            None, {self.input_name: np.zeros([1] + input_shape, dtype=np.float32)}
-        )
+        # opencv style bgr numpy array
+        dummy_input = np.zeros((self.output_shape[0], self.output_shape[1], 3), dtype=np.uint8)
+        self.infer_image(dummy_input)
 
     @torch.no_grad()
     def forward(self, x):
@@ -75,7 +74,7 @@ class MetricDepthEstimator:
         # clear output
         self.output_tensor.zero_()
         
-        
+        # set up io_binding
         io_binding.bind_output(
             self.output_name,
             device_type=self.output_tensor.device.type,
@@ -92,10 +91,7 @@ class MetricDepthEstimator:
         image, (h, w) = self.image2tensor(raw_image, input_size)
 
         depth = self.forward(image)
-
-        depth = F.interpolate(
-            depth[:, None], (h, w), mode="bilinear", align_corners=True
-        )[0, 0]
+        depth = depth.squeeze(0)
 
         return depth.cpu().numpy()
 
@@ -160,6 +156,13 @@ if __name__ == "__main__":
         help="do not apply colorful palette",
     )
 
+    parser.add_argument(
+        "--benchmark",
+        dest="benchmark",
+        action="store_true",
+        help="benchmark mode",
+    )
+
     args = parser.parse_args()
 
     depth_anything = MetricDepthEstimator(args.load_from)
@@ -183,7 +186,9 @@ if __name__ == "__main__":
         raw_image = cv2.imread(filename)
 
         start = datetime.now()
-        depth = depth_anything.infer_image(raw_image)
+        count = 100 if args.benchmark else 1
+        for _ in range(count):
+            depth = depth_anything.infer_image(raw_image)
         print(f"Inference time: {datetime.now() - start}")
 
         fig = plt.figure()
@@ -220,6 +225,7 @@ if __name__ == "__main__":
         if args.pred_only:
             cv2.imwrite(output_path, depth)
         else:
+            depth = cv2.resize(depth, (raw_image.shape[1], raw_image.shape[0]))
             split_region = np.ones((raw_image.shape[0], 50, 3), dtype=np.uint8) * 255
             combined_result = cv2.hconcat([raw_image, split_region, depth])
 
