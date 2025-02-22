@@ -10,12 +10,9 @@ import onnxruntime
 import torch
 import torch.nn.functional as F
 from torchvision.transforms import Compose
+import matplotlib.pyplot as plt
 
-from depth_anything_v2.util.transform import (NormalizeImage, PrepareForNet,
-                                              Resize)
-
-print(torch.cuda.is_available())
-torch.ones(1).cuda()
+from depth_anything_v2.util.transform import NormalizeImage, PrepareForNet, Resize
 
 
 class MetricDepthEstimator:
@@ -24,38 +21,47 @@ class MetricDepthEstimator:
         # setup onnx inference session
         sess_options = onnxruntime.SessionOptions()
         sess_options.intra_op_num_threads = 1
+        # "trt_int8_enable": True,
         providers = [
+            (
+                "TensorrtExecutionProvider",
+                {
+                    "trt_fp16_enable": True,
+                    "trt_engine_cache_enable": True,
+                    "trt_int8_use_native_calibration_table": False,
+                    "trt_timing_cache_enable": True,
+                    "trt_dump_ep_context_model": True,
+                    "trt_sparsity_enable": True,
+                },
+            ),
             "CUDAExecutionProvider",
-            "OpenVINOExecutionProvider",
+            ("OpenVINOExecutionProvider", {"device_type": "CPU", "num_of_threads": 1}),
             "CPUExecutionProvider",
         ]
-        prov_options = [{}, {"device_type": "CPU", "num_of_threads": 1}, {}]
         self.session = onnxruntime.InferenceSession(
             onnx_file,
             providers=providers,
             sess_options=sess_options,
-            provider_options=prov_options,
         )
         self.input_name = self.session.get_inputs()[0].name
         self.output_name = self.session.get_outputs()[0].name
+        self.input_shape = self.session.get_inputs()[0].shape[1:]
+
+        # initalize session
+        self.session.run(
+            None, {self.input_name: np.zeros([1] + self.input_shape, dtype=np.float32)}
+        )
 
     @torch.no_grad()
     def forward(self, x):
-        batch, _, h, w = x.shape
-        io_binding = self.session.io_binding()
-        io_binding.bind_cpu_input(self.input_name, x.numpy())
-        io_binding.bind_output(self.output_name)
-        self.session.run_with_iobinding(io_binding)
-        pred = io_binding.get_outputs()[0]
-        print(pred)
-        print(pred.device_name())  # 'cpu'
-        print(pred.shape())  # shape of the numpy array X
-        print(pred.data_type())  # 'tensor(float)'
-        print(pred.is_tensor())  # 'True'
-        raise
+        # batch, _, h, w = x.shape
+        # io_binding = self.session.io_binding()
+        # io_binding.bind_cpu_input(self.input_name, x.numpy())
+        # io_binding.bind_output(self.output_name)
+        # self.session.run_with_iobinding(io_binding)
+        # pred = io_binding.get_outputs()[0]
 
-        # pred = self.session.run([self.output_name], {self.input_name: x.numpy()})[0]
-        print(type(pred))
+        pred = self.session.run([self.output_name], {self.input_name: x.numpy()})[0]
         return torch.from_numpy(pred)
 
     @torch.no_grad()
@@ -156,6 +162,18 @@ if __name__ == "__main__":
         start = datetime.now()
         depth = depth_anything.infer_image(raw_image)
         print(f"Inference time: {datetime.now() - start}")
+
+        fig = plt.figure()
+        depth4plot = depth.flatten()
+        depth4plot = depth4plot[depth4plot < 35]
+        plt.hist(depth4plot, bins=100)
+        plt.savefig(
+            os.path.join(
+                args.outdir,
+                os.path.splitext(os.path.basename(filename))[0] + "_hist.onnx.png",
+            )
+        )
+        plt.close()
 
         if args.save_numpy:
             output_path = os.path.join(
