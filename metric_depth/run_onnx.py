@@ -5,14 +5,14 @@ from datetime import datetime
 
 import cv2
 import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import onnxruntime
 import torch
-import torch.nn.functional as F
 from torchvision.transforms import Compose
-import matplotlib.pyplot as plt
 
-from depth_anything_v2.util.transform import NormalizeImage, PrepareForNet, Resize
+from depth_anything_v2.util.transform import (NormalizeImage, PrepareForNet,
+                                              Resize)
 
 
 class MetricDepthEstimator:
@@ -21,7 +21,7 @@ class MetricDepthEstimator:
         # setup onnx inference session
         sess_options = onnxruntime.SessionOptions()
         sess_options.intra_op_num_threads = 1
-        
+
         providers = [
             (
                 "TensorrtExecutionProvider",
@@ -37,7 +37,6 @@ class MetricDepthEstimator:
                     "trt_timing_cache_path": "./.cache",
                     # "trt_ep_context_file_path ": "./cache",
                     "trt_dla_enable": True,
-
                 },
             ),
             "CUDAExecutionProvider",
@@ -52,28 +51,36 @@ class MetricDepthEstimator:
         )
         self.input_name = self.session.get_inputs()[0].name
         self.output_name = self.session.get_outputs()[0].name
-        self.output_shape = self.session.get_outputs()[0].shape[1:] # (h, w)
+        self.output_shape = self.session.get_outputs()[0].shape[1:]  # (h, w)
 
         # output tensor
-        device = "cuda" if torch.cuda.is_available() and "CUDAExecutionProvider" in onnxruntime.get_available_providers() else "cpu"
+        device = (
+            "cuda"
+            if torch.cuda.is_available()
+            and "CUDAExecutionProvider" in onnxruntime.get_available_providers()
+            else "cpu"
+        )
         self.output_tensor = torch.empty(
-            (1, self.output_shape[0], self.output_shape[1]), dtype=torch.float32, device=device
+            (1, self.output_shape[0], self.output_shape[1]),
+            dtype=torch.float32,
+            device=device,
         ).contiguous()
 
         # initalize session
         # opencv style bgr numpy array
-        dummy_input = np.zeros((self.output_shape[0], self.output_shape[1], 3), dtype=np.uint8)
+        dummy_input = np.zeros(
+            (self.output_shape[0], self.output_shape[1], 3), dtype=np.uint8
+        )
         self.infer_image(dummy_input)
 
     @torch.no_grad()
     def forward(self, x):
-        
         io_binding = self.session.io_binding()
         io_binding.bind_cpu_input(self.input_name, x.numpy())
 
         # clear output
         self.output_tensor.zero_()
-        
+
         # set up io_binding
         io_binding.bind_output(
             self.output_name,
@@ -81,7 +88,7 @@ class MetricDepthEstimator:
             device_id=self.output_tensor.device.index or 0,
             element_type=np.float32,
             shape=self.output_tensor.shape,
-            buffer_ptr=self.output_tensor.data_ptr()
+            buffer_ptr=self.output_tensor.data_ptr(),
         )
         self.session.run_with_iobinding(io_binding)
         return self.output_tensor
