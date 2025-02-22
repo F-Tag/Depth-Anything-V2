@@ -21,17 +21,23 @@ class MetricDepthEstimator:
         # setup onnx inference session
         sess_options = onnxruntime.SessionOptions()
         sess_options.intra_op_num_threads = 1
-        # "trt_int8_enable": True,
+        
         providers = [
             (
                 "TensorrtExecutionProvider",
                 {
+                    # "trt_int8_enable": True,
                     "trt_fp16_enable": True,
                     "trt_engine_cache_enable": True,
                     "trt_int8_use_native_calibration_table": False,
                     "trt_timing_cache_enable": True,
                     "trt_dump_ep_context_model": True,
                     "trt_sparsity_enable": True,
+                    "trt_engine_cache_path": "./.cache",
+                    "trt_timing_cache_path": "./.cache",
+                    # "trt_ep_context_file_path ": "./cache",
+                    "trt_dla_enable": True,
+
                 },
             ),
             "CUDAExecutionProvider",
@@ -45,24 +51,41 @@ class MetricDepthEstimator:
         )
         self.input_name = self.session.get_inputs()[0].name
         self.output_name = self.session.get_outputs()[0].name
-        self.input_shape = self.session.get_inputs()[0].shape[1:]
+        input_shape = self.session.get_inputs()[0].shape[1:]
+
+        # output tensor
+        device = "cuda" if torch.cuda.is_available() and "CUDAExecutionProvider" in onnxruntime.get_available_providers() else "cpu"
+        self.output_tensor = torch.empty(
+            (1, input_shape[1], input_shape[2]), dtype=torch.float32, device=device
+        ).contiguous()
+
+        print(self.output_tensor.device.type, self.output_tensor.device.index)
 
         # initalize session
         self.session.run(
-            None, {self.input_name: np.zeros([1] + self.input_shape, dtype=np.float32)}
+            None, {self.input_name: np.zeros([1] + input_shape, dtype=np.float32)}
         )
 
     @torch.no_grad()
     def forward(self, x):
-        # batch, _, h, w = x.shape
-        # io_binding = self.session.io_binding()
-        # io_binding.bind_cpu_input(self.input_name, x.numpy())
-        # io_binding.bind_output(self.output_name)
-        # self.session.run_with_iobinding(io_binding)
-        # pred = io_binding.get_outputs()[0]
+        
+        io_binding = self.session.io_binding()
+        io_binding.bind_cpu_input(self.input_name, x.numpy())
 
-        pred = self.session.run([self.output_name], {self.input_name: x.numpy()})[0]
-        return torch.from_numpy(pred)
+        # clear output
+        self.output_tensor.zero_()
+        
+        
+        io_binding.bind_output(
+            self.output_name,
+            device_type=self.output_tensor.device.type,
+            device_id=self.output_tensor.device.index or 0,
+            element_type=np.float32,
+            shape=self.output_tensor.shape,
+            buffer_ptr=self.output_tensor.data_ptr()
+        )
+        self.session.run_with_iobinding(io_binding)
+        return self.output_tensor
 
     @torch.no_grad()
     def infer_image(self, raw_image, input_size=518):
