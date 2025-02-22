@@ -5,6 +5,7 @@ import matplotlib
 import numpy as np
 import os
 import torch
+from datetime import datetime
 
 from depth_anything_v2.dpt import DepthAnythingV2
 
@@ -57,7 +58,9 @@ if __name__ == '__main__':
         
         raw_image = cv2.imread(filename)
         
+        start = datetime.now()
         depth = depth_anything.infer_image(raw_image, args.input_size)
+        print(f'Inference time: {datetime.now() - start}')
         
         if args.save_numpy:
             output_path = os.path.join(args.outdir, os.path.splitext(os.path.basename(filename))[0] + '_raw_depth_meter.npy')
