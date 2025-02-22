@@ -203,11 +203,16 @@ class DepthAnythingV2(nn.Module):
         patch_h, patch_w = x.shape[-2] // 14, x.shape[-1] // 14
         batch_size = x.shape[0]
 
+        # horizontal flip
+        x = torch.cat([x, x.flip(-1)], dim=0)
+
         features = self.pretrained.get_intermediate_layers(
             x, self.intermediate_layer_idx[self.encoder], return_class_token=True
         )
-
         depth = self.depth_head(features, patch_h, patch_w) * self.max_depth
+
+        depth, depth_flip = torch.chunk(depth, 2, dim=0)
+        depth = (depth + depth_flip.flip(-1)) / 2
 
         depth = F.interpolate(
             depth, (self.h, self.w), mode="bilinear", align_corners=True
