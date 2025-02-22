@@ -5,6 +5,7 @@ from datetime import datetime
 
 import cv2
 import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
@@ -104,6 +105,19 @@ if __name__ == "__main__":
         start = datetime.now()
         depth = depth_anything.infer_image(raw_image, args.input_size)
         print(f"Inference time: {datetime.now() - start}")
+
+        fig = plt.figure()
+        depth4plot = depth.flatten()
+        depth4plot = depth4plot[depth4plot < 35]
+        plt.hist(depth4plot, bins=100)
+        plt.savefig(
+            os.path.join(
+                args.outdir,
+                os.path.splitext(os.path.basename(filename))[0] + "_hist.png",
+            )
+        )
+        plt.close()
+
 
         if args.save_numpy:
             output_path = os.path.join(
